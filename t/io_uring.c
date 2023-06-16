@@ -882,12 +882,17 @@ static int detect_node(struct submitter *s, const char *name)
 #ifdef CONFIG_LIBNUMA
 	const char *base = basename(name);
 	char str[128];
+	char str2[128];
 	int ret, fd, node;
+	strcpy(str2, base);
+	str2[5] = 0;
 
 	if (pt)
-		sprintf(str, "/sys/class/nvme-generic/%s/device/numa_node", base);
+		sprintf(str, "/sys/class/nvme-generic/%s/device/%s/numa_node", base, str2);
 	else
-		sprintf(str, "/sys/block/%s/device/numa_node", base);
+		sprintf(str, "/sys/block/%s/device/%s/numa_node", base, str2);
+	printf("%s\n", str);
+
 	fd = open(str, O_RDONLY);
 	if (fd < 0)
 		return -1;
