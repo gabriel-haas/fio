@@ -144,6 +144,7 @@ static int register_ring = 1;	/* register ring */
 static int use_sync = 0;	/* use preadv2 */
 static int numa_placement = 0;	/* set to node of device */
 static int pt = 0;		/* passthrough I/O or not */
+static long max_file_size = 0;		/* */
 
 static unsigned long tsc_rate;
 
@@ -703,8 +704,18 @@ static int get_file_size(struct file *f)
 					bs, lbs);
 			return -1;
 		}
-		f->max_blocks = nlba;
-		f->max_size = nlba;
+		if (max_file_size > 0) {
+			if (max_file_size > nlba) {
+				printf("error: max_file_size:%ld cannot be larger than device nlba:%lld\n",
+						 max_file_size, nlba);
+				return -1;
+			}
+			f->max_blocks = max_file_size / bs;
+			f->max_size = max_file_size;
+		} else {
+			f->max_blocks = nlba / bs;
+			f->max_size = nlba;
+		}
 		f->lba_shift = ilog2(lbs);
 		return 0;
 	} else if (S_ISBLK(st.st_mode)) {
@@ -713,12 +724,32 @@ static int get_file_size(struct file *f)
 		if (ioctl(f->real_fd, BLKGETSIZE64, &bytes) != 0)
 			return -1;
 
-		f->max_blocks = bytes / bs;
-		f->max_size = bytes;
+		if (max_file_size > 0) {
+			if (max_file_size > bytes) {
+				printf("error: max_file_size:%ld cannot be larger than block device size:%lld\n",
+						 max_file_size, bytes);
+				return -1;
+			}
+			f->max_blocks = max_file_size / bs;
+			f->max_size = max_file_size;
+		} else {
+			f->max_blocks = bytes / bs;
+			f->max_size = bytes;
+		}
 		return 0;
 	} else if (S_ISREG(st.st_mode)) {
-		f->max_blocks = st.st_size / bs;
-		f->max_size = st.st_size;
+		if (max_file_size > 0) {
+			if (max_file_size > st.st_size) {
+				printf("error: max_file_size:%ld cannot be larger than block device size:%ld\n",
+						 max_file_size, st.st_size);
+				return -1;
+			}
+			f->max_blocks = max_file_size / bs;
+			f->max_size = max_file_size;
+		} else {
+			f->max_blocks = st.st_size / bs;
+			f->max_size = st.st_size;
+		}
 		return 0;
 	}
 
@@ -1532,11 +1563,12 @@ static void usage(char *argv, int status)
 		" -S <bool> : Use sync IO (preadv2), default %d\n"
 		" -X <bool> : Use registered ring %d\n"
 		" -P <bool> : Automatically place on device home node %d\n"
-		" -u <bool> : Use nvme-passthrough I/O, default %d\n",
+		" -u <bool> : Use nvme-passthrough I/O, default %d\n"
+		" -m <bool> : Max file size in ! GiB !, default %ld\n",
 		argv, DEPTH, BATCH_SUBMIT, BATCH_COMPLETE, BS, polled,
 		fixedbufs, dma_map, register_files, nthreads, !buffered, do_nop,
 		stats, runtime == 0 ? "unlimited" : runtime_str, random_io, aio,
-		use_sync, register_ring, numa_placement, pt);
+		use_sync, register_ring, numa_placement, pt, max_file_size);
 	exit(status);
 }
 
@@ -1595,7 +1627,7 @@ int main(int argc, char *argv[])
 	if (!do_nop && argc < 2)
 		usage(argv[0], 1);
 
-	while ((opt = getopt(argc, argv, "d:s:c:b:p:B:F:n:N:O:t:T:a:r:D:R:X:S:P:u:h?")) != -1) {
+	while ((opt = getopt(argc, argv, "d:s:c:b:p:B:F:n:N:O:t:T:a:r:D:R:X:S:P:u:m:h?")) != -1) {
 		switch (opt) {
 		case 'a':
 			aio = !!atoi(optarg);
@@ -1678,6 +1710,10 @@ int main(int argc, char *argv[])
 			break;
 		case 'u':
 			pt = !!atoi(optarg);
+			break;
+		case 'm':
+			max_file_size = atol(optarg)*1024*1024*1024;
+			printf("max file size %li\n" , max_file_size);
 			break;
 		case 'h':
 		case '?':
