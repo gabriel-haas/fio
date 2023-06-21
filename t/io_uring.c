@@ -705,7 +705,7 @@ static int get_file_size(struct file *f)
 			return -1;
 		}
 		if (max_file_size > 0) {
-			if (max_file_size > nlba) {
+			if (max_file_size > nlba * lbs) {
 				printf("error: max_file_size:%ld cannot be larger than device nlba:%lld\n",
 						 max_file_size, nlba);
 				return -1;
@@ -713,8 +713,8 @@ static int get_file_size(struct file *f)
 			f->max_blocks = max_file_size / bs;
 			f->max_size = max_file_size;
 		} else {
-			f->max_blocks = nlba / bs;
-			f->max_size = nlba;
+			f->max_blocks = nlba / (bs / lbs);
+			f->max_size = nlba * lbs;
 		}
 		f->lba_shift = ilog2(lbs);
 		return 0;
