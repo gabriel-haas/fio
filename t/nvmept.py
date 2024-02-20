@@ -55,6 +55,8 @@ class PassThruTest(FioJobCmdTest):
 
 
     def check_result(self):
+        super().check_result()
+
         if 'rw' not in self.fio_opts:
             return
 
@@ -78,6 +80,10 @@ class PassThruTest(FioJobCmdTest):
             self.passed = self.check_all_ddirs(['trim', 'write'], job)
         else:
             print(f"Unhandled rw value {self.fio_opts['rw']}")
+            self.passed = False
+
+        if job['iodepth_level']['8'] < 95:
+            print("Did not achieve requested iodepth")
             self.passed = False
 
 
@@ -232,6 +238,23 @@ TEST_LIST = [
             },
         "test_class": PassThruTest,
     },
+    {
+        # We can't enable fixedbufs because for trim-only
+        # workloads fio actually does not allocate any buffers
+        "test_id": 15,
+        "fio_opts": {
+            "rw": 'randtrim',
+            "timebased": 1,
+            "runtime": 3,
+            "fixedbufs": 0,
+            "nonvectored": 1,
+            "force_async": 1,
+            "registerfiles": 1,
+            "sqthread_poll": 1,
+            "output-format": "json",
+            },
+        "test_class": PassThruTest,
+    },
 ]
 
 def parse_args():
@@ -274,7 +297,7 @@ def main():
               'fio_path': fio_path,
               'fio_root': str(Path(__file__).absolute().parent.parent),
               'artifact_root': artifact_root,
-              'basename': 'readonly',
+              'basename': 'nvmept',
               }
 
     _, failed, _ = run_fio_tests(TEST_LIST, test_env, args)

@@ -38,6 +38,17 @@ uint64_t usec_spin(unsigned int usec)
 	return t;
 }
 
+/*
+ * busy loop for a fixed amount of cycles
+ */
+void cycles_spin(unsigned int n)
+{
+	unsigned long i;
+
+	for (i=0; i < n; i++)
+		nop;
+}
+
 uint64_t usec_sleep(struct thread_data *td, unsigned long usec)
 {
 	struct timespec req;
@@ -172,14 +183,22 @@ void set_genesis_time(void)
 	fio_gettime(&genesis, NULL);
 }
 
-void set_epoch_time(struct thread_data *td, int log_alternate_epoch, clockid_t clock_id)
+void set_epoch_time(struct thread_data *td, clockid_t log_alternate_epoch_clock_id, clockid_t job_start_clock_id)
 {
+	struct timespec ts;
 	fio_gettime(&td->epoch, NULL);
-	if (log_alternate_epoch) {
-		struct timespec ts;
-		clock_gettime(clock_id, &ts);
-		td->alternate_epoch = (unsigned long long)(ts.tv_sec) * 1000 +
-		                 (unsigned long long)(ts.tv_nsec) / 1000000;
+	clock_gettime(log_alternate_epoch_clock_id, &ts);
+	td->alternate_epoch = (unsigned long long)(ts.tv_sec) * 1000 +
+						  (unsigned long long)(ts.tv_nsec) / 1000000;
+	if (job_start_clock_id == log_alternate_epoch_clock_id)
+	{
+		td->job_start = td->alternate_epoch;
+	}
+	else
+	{
+		clock_gettime(job_start_clock_id, &ts);
+		td->job_start = (unsigned long long)(ts.tv_sec) * 1000 +
+						(unsigned long long)(ts.tv_nsec) / 1000000;
 	}
 }
 

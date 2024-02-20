@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <poll.h>
@@ -1705,6 +1706,7 @@ void fio_server_send_ts(struct thread_stat *ts, struct group_run_stats *rs)
 	p.ts.error		= cpu_to_le32(ts->error);
 	p.ts.thread_number	= cpu_to_le32(ts->thread_number);
 	p.ts.groupid		= cpu_to_le32(ts->groupid);
+	p.ts.job_start		= cpu_to_le64(ts->job_start);
 	p.ts.pid		= cpu_to_le32(ts->pid);
 	p.ts.members		= cpu_to_le32(ts->members);
 	p.ts.unified_rw_rep	= cpu_to_le32(ts->unified_rw_rep);
@@ -1881,7 +1883,6 @@ void fio_server_send_ts(struct thread_stat *ts, struct group_run_stats *rs)
 
 		offset = (char *)extended_buf_wp - (char *)extended_buf;
 		ptr->ts.ss_bw_data_offset = cpu_to_le64(offset);
-		extended_buf_wp = ss_bw + (int) ts->ss_dur;
 	}
 
 	fio_net_queue_cmd(FIO_NET_CMD_TS, extended_buf, extended_buf_size, NULL, SK_F_COPY);
@@ -2258,6 +2259,7 @@ int fio_send_iolog(struct thread_data *td, struct io_log *log, const char *name)
 		.thread_number		= cpu_to_le32(td->thread_number),
 		.log_type		= cpu_to_le32(log->log_type),
 		.log_hist_coarseness	= cpu_to_le32(log->hist_coarseness),
+		.per_job_logs		= cpu_to_le32(td->o.per_job_logs),
 	};
 	struct sk_entry *first;
 	struct flist_head *entry;
@@ -2286,8 +2288,10 @@ int fio_send_iolog(struct thread_data *td, struct io_log *log, const char *name)
 			struct io_sample *s = get_sample(log, cur_log, i);
 
 			s->time		= cpu_to_le64(s->time);
-			if (log->log_type != IO_LOG_TYPE_HIST)
-				s->data.val	= cpu_to_le64(s->data.val);
+			if (log->log_type != IO_LOG_TYPE_HIST) {
+				s->data.val.val0	= cpu_to_le64(s->data.val.val0);
+				s->data.val.val1	= cpu_to_le64(s->data.val.val1);
+			}
 			s->__ddir	= __cpu_to_le32(s->__ddir);
 			s->bs		= cpu_to_le64(s->bs);
 
@@ -2343,7 +2347,11 @@ void fio_server_send_start(struct thread_data *td)
 {
 	struct sk_out *sk_out = pthread_getspecific(sk_out_key);
 
-	assert(sk_out->sk != -1);
+	if (sk_out->sk == -1) {
+		log_err("pthread getting specific for key failed, sk_out %p, sk %i, err: %i:%s",
+			sk_out, sk_out->sk, errno, strerror(errno));
+		abort();
+	}
 
 	fio_net_queue_cmd(FIO_NET_CMD_SERVER_START, NULL, 0, NULL, SK_F_SIMPLE);
 }

@@ -75,7 +75,7 @@ class FioExeTest(FioTest):
         command = [self.paths['exe']] + self.parameters
         with open(self.filenames['cmd'], "w+",
                   encoding=locale.getpreferredencoding()) as command_file:
-            command_file.write(" ".join(command))
+            command_file.write(" \\\n ".join(command))
 
         try:
             with open(self.filenames['stdout'], "w+",
@@ -382,9 +382,10 @@ def run_fio_tests(test_list, test_env, args):
 
     for config in test_list:
         if (args.skip and config['test_id'] in args.skip) or \
-           (args.run_only and config['test_id'] not in args.run_only):
+           (args.run_only and config['test_id'] not in args.run_only) or \
+           ('force_skip' in config and config['force_skip']):
             skipped = skipped + 1
-            print(f"Test {config['test_id']} SKIPPED (User request)")
+            print(f"Test {config['test_id']} SKIPPED (User request or override)")
             continue
 
         if issubclass(config['test_class'], FioJobFileTest):

@@ -618,6 +618,19 @@ static int fixup_options(struct thread_data *td)
 		ret |= 1;
 	}
 
+	if (td_trimwrite(td) && o->num_range > 1) {
+		log_err("fio: trimwrite cannot be used with multiple"
+			" ranges.\n");
+		ret |= 1;
+	}
+
+	if (td_trim(td) && o->num_range > 1 &&
+	    !td_ioengine_flagged(td, FIO_MULTI_RANGE_TRIM)) {
+		log_err("fio: can't use multiple ranges with IO engine %s\n",
+			td->io_ops->name);
+		ret |= 1;
+	}
+
 #ifndef CONFIG_PSHARED
 	if (!o->use_thread) {
 		log_info("fio: this platform does not support process shared"
@@ -951,13 +964,16 @@ static int fixup_options(struct thread_data *td)
 	if (o->disable_slat)
 		o->slat_percentiles = 0;
 
-	/*
-	 * Fix these up to be nsec internally
-	 */
-	for_each_rw_ddir(ddir)
-		o->max_latency[ddir] *= 1000ULL;
+	/* Do this only for the parent job */
+	if (!td->subjob_number) {
+		/*
+		 * Fix these up to be nsec internally
+		 */
+		for_each_rw_ddir(ddir)
+			o->max_latency[ddir] *= 1000ULL;
 
-	o->latency_target *= 1000ULL;
+		o->latency_target *= 1000ULL;
+	}
 
 	/*
 	 * Dedupe working set verifications
@@ -1079,6 +1095,8 @@ void td_fill_rand_seeds(struct thread_data *td)
 
 	init_rand_seed(&td->buf_state, td->rand_seeds[FIO_RAND_BUF_OFF], use64);
 	frand_copy(&td->buf_state_prev, &td->buf_state);
+
+	init_rand_seed(&td->fdp_state, td->rand_seeds[FIO_RAND_FDP_OFF], use64);
 }
 
 static int setup_random_seeds(struct thread_data *td)

@@ -338,12 +338,20 @@ static void dump_verify_buffers(struct verify_header *hdr, struct vcont *vc)
 static void log_verify_failure(struct verify_header *hdr, struct vcont *vc)
 {
 	unsigned long long offset;
+	uint32_t len;
+	struct thread_data *td = vc->td;
 
 	offset = vc->io_u->verify_offset;
-	offset += vc->hdr_num * hdr->len;
+	if (td->o.verify != VERIFY_PATTERN_NO_HDR) {
+		len = hdr->len;
+		offset += (unsigned long long) vc->hdr_num * len;
+	} else {
+		len = vc->io_u->buflen;
+	}
+
 	log_err("%.8s: verify failed at file %s offset %llu, length %u"
 			" (requested block: offset=%llu, length=%llu, flags=%x)\n",
-			vc->name, vc->io_u->file->file_name, offset, hdr->len,
+			vc->name, vc->io_u->file->file_name, offset, len,
 			vc->io_u->verify_offset, vc->io_u->buflen, vc->io_u->flags);
 
 	if (vc->good_crc && vc->bad_crc) {
@@ -398,7 +406,8 @@ static int verify_io_u_pattern(struct verify_header *hdr, struct vcont *vc)
 				(unsigned char)buf[i],
 				(unsigned char)pattern[mod],
 				bits);
-			log_err("fio: bad pattern block offset %u\n", i);
+			log_err("fio: bad pattern block offset %u\n",
+				i + header_size);
 			vc->name = "pattern";
 			log_verify_failure(hdr, vc);
 			return EILSEQ;
@@ -1610,8 +1619,8 @@ struct all_io_list *get_all_io_list(int save_mask, size_t *sz)
 		comps = fill_file_completions(td, s, &index);
 
 		s->no_comps = cpu_to_le64((uint64_t) comps);
-		s->depth = cpu_to_le64((uint64_t) td->o.iodepth);
-		s->nofiles = cpu_to_le64((uint64_t) td->o.nr_files);
+		s->depth = cpu_to_le32((uint32_t) td->o.iodepth);
+		s->nofiles = cpu_to_le32((uint32_t) td->o.nr_files);
 		s->numberio = cpu_to_le64((uint64_t) td->io_issues[DDIR_WRITE]);
 		s->index = cpu_to_le64((uint64_t) __td_index);
 		if (td->random_state.use64) {
@@ -1647,6 +1656,10 @@ static int open_state_file(const char *name, const char *prefix, int num,
 		flags = O_CREAT | O_TRUNC | O_WRONLY | O_SYNC;
 	else
 		flags = O_RDONLY;
+
+#ifdef _WIN32
+	flags |= O_BINARY;
+#endif
 
 	verify_state_gen_name(out, sizeof(out), name, prefix, num);
 

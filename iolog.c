@@ -82,8 +82,8 @@ static void iolog_delay(struct thread_data *td, unsigned long delay)
 {
 	uint64_t usec = utime_since_now(&td->last_issue);
 	unsigned long orig_delay = delay;
-	uint64_t this_delay;
 	struct timespec ts;
+	int ret = 0;
 
 	if (delay < td->time_offset) {
 		td->time_offset = 0;
@@ -97,13 +97,13 @@ static void iolog_delay(struct thread_data *td, unsigned long delay)
 	delay -= usec;
 
 	fio_gettime(&ts, NULL);
-	while (delay && !td->terminate) {
-		this_delay = delay;
-		if (this_delay > 500000)
-			this_delay = 500000;
 
-		usec_sleep(td, this_delay);
-		delay -= this_delay;
+	while (delay && !td->terminate) {
+		ret = io_u_queued_complete(td, 0);
+		if (ret < 0)
+			td_verror(td, -ret, "io_u_queued_complete");
+		if (utime_since_now(&ts) > delay)
+			break;
 	}
 
 	usec = utime_since_now(&ts);
@@ -862,6 +862,13 @@ void setup_log(struct io_log **log, struct log_params *p,
 		l->log_ddir_mask = LOG_OFFSET_SAMPLE_BIT;
 	if (l->log_prio)
 		l->log_ddir_mask |= LOG_PRIO_SAMPLE_BIT;
+	/*
+	 * The bandwidth-log option generates agg-read_bw.log,
+	 * agg-write_bw.log and agg-trim_bw.log for which l->td is NULL.
+	 * Check if l->td is valid before dereferencing it.
+	 */
+	if (l->td && l->td->o.log_max == IO_LOG_SAMPLE_BOTH)
+		l->log_ddir_mask |= LOG_AVG_MAX_SAMPLE_BIT;
 
 	INIT_FLIST_HEAD(&l->chunk_list);
 
@@ -988,7 +995,7 @@ static void flush_hist_samples(FILE *f, int hist_coarseness, void *samples,
 void flush_samples(FILE *f, void *samples, uint64_t sample_size)
 {
 	struct io_sample *s;
-	int log_offset, log_prio;
+	int log_offset, log_prio, log_avg_max;
 	uint64_t i, nr_samples;
 	unsigned int prio_val;
 	const char *fmt;
@@ -999,17 +1006,32 @@ void flush_samples(FILE *f, void *samples, uint64_t sample_size)
 	s = __get_sample(samples, 0, 0);
 	log_offset = (s->__ddir & LOG_OFFSET_SAMPLE_BIT) != 0;
 	log_prio = (s->__ddir & LOG_PRIO_SAMPLE_BIT) != 0;
+	log_avg_max = (s->__ddir & LOG_AVG_MAX_SAMPLE_BIT) != 0;
 
 	if (log_offset) {
-		if (log_prio)
-			fmt = "%lu, %" PRId64 ", %u, %llu, %llu, 0x%04x\n";
-		else
-			fmt = "%lu, %" PRId64 ", %u, %llu, %llu, %u\n";
+		if (log_prio) {
+			if (log_avg_max)
+				fmt = "%" PRIu64 ", %" PRId64 ", %" PRId64 ", %u, %llu, %llu, 0x%04x\n";
+			else
+				fmt = "%" PRIu64 ", %" PRId64 ", %u, %llu, %llu, 0x%04x\n";
+		} else {
+			if (log_avg_max)
+				fmt = "%" PRIu64 ", %" PRId64 ", %" PRId64 ", %u, %llu, %llu, %u\n";
+			else
+				fmt = "%" PRIu64 ", %" PRId64 ", %u, %llu, %llu, %u\n";
+		}
 	} else {
-		if (log_prio)
-			fmt = "%lu, %" PRId64 ", %u, %llu, 0x%04x\n";
-		else
-			fmt = "%lu, %" PRId64 ", %u, %llu, %u\n";
+		if (log_prio) {
+			if (log_avg_max)
+				fmt = "%" PRIu64 ", %" PRId64 ", %" PRId64 ", %u, %llu, 0x%04x\n";
+			else
+				fmt = "%" PRIu64 ", %" PRId64 ", %u, %llu, 0x%04x\n";
+		} else {
+			if (log_avg_max)
+				fmt = "%" PRIu64 ", %" PRId64 ", %" PRId64 ", %u, %llu, %u\n";
+			else
+				fmt = "%" PRIu64 ", %" PRId64 ", %u, %llu, %u\n";
+		}
 	}
 
 	nr_samples = sample_size / __log_entry_sz(log_offset);
@@ -1023,20 +1045,37 @@ void flush_samples(FILE *f, void *samples, uint64_t sample_size)
 			prio_val = ioprio_value_is_class_rt(s->priority);
 
 		if (!log_offset) {
-			fprintf(f, fmt,
-				(unsigned long) s->time,
-				s->data.val,
-				io_sample_ddir(s), (unsigned long long) s->bs,
-				prio_val);
+			if (log_avg_max)
+				fprintf(f, fmt,
+					s->time,
+					s->data.val.val0,
+					s->data.val.val1,
+					io_sample_ddir(s), (unsigned long long) s->bs,
+					prio_val);
+			else
+				fprintf(f, fmt,
+					s->time,
+					s->data.val.val0,
+					io_sample_ddir(s), (unsigned long long) s->bs,
+					prio_val);
 		} else {
 			struct io_sample_offset *so = (void *) s;
 
-			fprintf(f, fmt,
-				(unsigned long) s->time,
-				s->data.val,
-				io_sample_ddir(s), (unsigned long long) s->bs,
-				(unsigned long long) so->offset,
-				prio_val);
+			if (log_avg_max)
+				fprintf(f, fmt,
+					s->time,
+					s->data.val.val0,
+					s->data.val.val1,
+					io_sample_ddir(s), (unsigned long long) s->bs,
+					(unsigned long long) so->offset,
+					prio_val);
+			else
+				fprintf(f, fmt,
+					s->time,
+					s->data.val.val0,
+					io_sample_ddir(s), (unsigned long long) s->bs,
+					(unsigned long long) so->offset,
+					prio_val);
 		}
 	}
 }

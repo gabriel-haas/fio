@@ -71,6 +71,16 @@
 
 struct fio_sem;
 
+#define MAX_TRIM_RANGE	256
+
+/*
+ * Range for trim command
+ */
+struct trim_range {
+	unsigned long long start;
+	unsigned long long len;
+};
+
 /*
  * offset generator types
  */
@@ -144,6 +154,7 @@ enum {
 	FIO_RAND_POISSON3_OFF,
 	FIO_RAND_PRIO_CMDS,
 	FIO_RAND_DEDUPE_WORKING_SET_IX,
+	FIO_RAND_FDP_OFF,
 	FIO_RAND_NR_OFFS,
 };
 
@@ -262,6 +273,7 @@ struct thread_data {
 	struct frand_state verify_state_last_do_io;
 	struct frand_state trim_state;
 	struct frand_state delay_state;
+	struct frand_state fdp_state;
 
 	struct frand_state buf_state;
 	struct frand_state buf_state_prev;
@@ -386,7 +398,8 @@ struct thread_data {
 
 	struct timespec start;	/* start of this loop */
 	struct timespec epoch;	/* time job was started */
-	unsigned long long alternate_epoch; /* Time job was started, clock_gettime's clock_id epoch based. */
+	unsigned long long alternate_epoch; /* Time job was started, as clock_gettime(log_alternate_epoch_clock_id) */
+	unsigned long long job_start; /* Time job was started, as clock_gettime(job_start_clock_id) */
 	struct timespec last_issue;
 	long time_offset;
 	struct timespec ts_cache;
@@ -604,6 +617,14 @@ static inline void fio_ro_check(const struct thread_data *td, struct io_u *io_u)
 {
 	assert(!(io_u->ddir == DDIR_WRITE && !td_write(td)) &&
 	       !(io_u->ddir == DDIR_TRIM && !td_trim(td)));
+}
+
+static inline bool multi_range_trim(struct thread_data *td, struct io_u *io_u)
+{
+	if (io_u->ddir == DDIR_TRIM && td->o.num_range > 1)
+		return true;
+
+	return false;
 }
 
 static inline bool should_fsync(struct thread_data *td)

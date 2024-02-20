@@ -170,7 +170,6 @@ struct thread_options {
 	unsigned int log_offset;
 	unsigned int log_gz;
 	unsigned int log_gz_store;
-	unsigned int log_unix_epoch;
 	unsigned int log_alternate_epoch;
 	unsigned int log_alternate_epoch_clock_id;
 	unsigned int norandommap;
@@ -248,6 +247,7 @@ struct thread_options {
 	unsigned int nice;
 	unsigned int ioprio;
 	unsigned int ioprio_class;
+	unsigned int ioprio_hint;
 	unsigned int file_service_type;
 	unsigned int group_reporting;
 	unsigned int stats;
@@ -272,6 +272,7 @@ struct thread_options {
 	unsigned int unified_rw_rep;
 	unsigned int gtod_reduce;
 	unsigned int gtod_cpu;
+	unsigned int job_start_clock_id;
 	enum fio_cs clocksource;
 	unsigned int no_stall;
 	unsigned int trim_percentage;
@@ -307,6 +308,8 @@ struct thread_options {
 	 */
 	char *exec_prerun;
 	char *exec_postrun;
+
+	unsigned int thinkcycles;
 
 	unsigned int thinktime;
 	unsigned int thinktime_spin;
@@ -350,12 +353,14 @@ struct thread_options {
 	unsigned long long offset_increment;
 	unsigned long long number_ios;
 
+	unsigned int num_range;
+
 	unsigned int sync_file_range;
 
 	unsigned long long latency_target;
 	unsigned long long latency_window;
-	fio_fp64_t latency_percentile;
 	uint32_t latency_run;
+	fio_fp64_t latency_percentile;
 
 	/*
 	 * flow support
@@ -388,6 +393,7 @@ struct thread_options {
 
 #define FIO_MAX_PLIS 16
 	unsigned int fdp;
+	unsigned int fdp_pli_select;
 	unsigned int fdp_plis[FIO_MAX_PLIS];
 	unsigned int fdp_nrpli;
 
@@ -420,7 +426,6 @@ struct thread_options_pack {
 	uint32_t iodepth_batch_complete_min;
 	uint32_t iodepth_batch_complete_max;
 	uint32_t serialize_overlap;
-	uint32_t pad;
 
 	uint64_t size;
 	uint64_t io_size;
@@ -431,13 +436,11 @@ struct thread_options_pack {
 	uint32_t fill_device;
 	uint32_t file_append;
 	uint32_t unique_filename;
-	uint32_t pad3;
 	uint64_t file_size_low;
 	uint64_t file_size_high;
 	uint64_t start_offset;
 	uint64_t start_offset_align;
 	uint32_t start_offset_nz;
-	uint32_t pad4;
 
 	uint64_t bs[DDIR_RWDIR_CNT];
 	uint64_t ba[DDIR_RWDIR_CNT];
@@ -492,7 +495,6 @@ struct thread_options_pack {
 	uint32_t log_offset;
 	uint32_t log_gz;
 	uint32_t log_gz_store;
-	uint32_t log_unix_epoch;
 	uint32_t log_alternate_epoch;
 	uint32_t log_alternate_epoch_clock_id;
 	uint32_t norandommap;
@@ -567,6 +569,7 @@ struct thread_options_pack {
 	uint32_t nice;
 	uint32_t ioprio;
 	uint32_t ioprio_class;
+	uint32_t ioprio_hint;
 	uint32_t file_service_type;
 	uint32_t group_reporting;
 	uint32_t stats;
@@ -590,6 +593,7 @@ struct thread_options_pack {
 	uint32_t unified_rw_rep;
 	uint32_t gtod_reduce;
 	uint32_t gtod_cpu;
+	uint32_t job_start_clock_id;
 	uint32_t clocksource;
 	uint32_t no_stall;
 	uint32_t trim_percentage;
@@ -600,7 +604,7 @@ struct thread_options_pack {
 	uint32_t lat_percentiles;
 	uint32_t slat_percentiles;
 	uint32_t percentile_precision;
-	uint32_t pad5;
+	uint32_t pad;
 	fio_fp64_t percentile_list[FIO_IO_U_LIST_MAX_LEN];
 
 	uint8_t read_iolog_file[FIO_TOP_STR_MAX];
@@ -625,6 +629,8 @@ struct thread_options_pack {
 	 */
 	uint8_t exec_prerun[FIO_TOP_STR_MAX];
 	uint8_t exec_postrun[FIO_TOP_STR_MAX];
+
+	uint32_t thinkcycles;
 
 	uint32_t thinktime;
 	uint32_t thinktime_spin;
@@ -671,8 +677,8 @@ struct thread_options_pack {
 	uint64_t latency_target;
 	uint64_t latency_window;
 	uint64_t max_latency[DDIR_RWDIR_CNT];
-	fio_fp64_t latency_percentile;
 	uint32_t latency_run;
+	fio_fp64_t latency_percentile;
 
 	/*
 	 * flow support
@@ -703,9 +709,11 @@ struct thread_options_pack {
 	uint32_t log_prio;
 
 	uint32_t fdp;
+	uint32_t fdp_pli_select;
 	uint32_t fdp_plis[FIO_MAX_PLIS];
 	uint32_t fdp_nrpli;
 
+	uint32_t num_range;
 	/*
 	 * verify_pattern followed by buffer_pattern from the unpacked struct
 	 */

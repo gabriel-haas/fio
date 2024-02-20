@@ -597,10 +597,11 @@ static void show_ddir_status(struct group_run_stats *rs, struct thread_stat *ts,
 				continue;
 
 			snprintf(buf, sizeof(buf),
-				 "%s prio %u/%u",
+				 "%s prio %u/%u/%u",
 				 clat_type,
 				 ioprio_class(ts->clat_prio[ddir][i].ioprio),
-				 ioprio(ts->clat_prio[ddir][i].ioprio));
+				 ioprio(ts->clat_prio[ddir][i].ioprio),
+				 ioprio_hint(ts->clat_prio[ddir][i].ioprio));
 			display_lat(buf, min, max, mean, dev, out);
 		}
 	}
@@ -640,10 +641,11 @@ static void show_ddir_status(struct group_run_stats *rs, struct thread_stat *ts,
 					continue;
 
 				snprintf(prio_name, sizeof(prio_name),
-					 "%s prio %u/%u (%.2f%% of IOs)",
+					 "%s prio %u/%u/%u (%.2f%% of IOs)",
 					 clat_type,
 					 ioprio_class(ts->clat_prio[ddir][i].ioprio),
 					 ioprio(ts->clat_prio[ddir][i].ioprio),
+					 ioprio_hint(ts->clat_prio[ddir][i].ioprio),
 					 100. * (double) prio_samples / (double) samples);
 				show_clat_percentiles(ts->clat_prio[ddir][i].io_u_plat,
 						prio_samples, ts->percentile_list,
@@ -957,11 +959,13 @@ static void show_agg_stats(struct disk_util_agg *agg, int terse,
 		return;
 
 	if (!terse) {
-		log_buf(out, ", aggrios=%llu/%llu, aggrmerge=%llu/%llu, "
-			 "aggrticks=%llu/%llu, aggrin_queue=%llu, "
-			 "aggrutil=%3.2f%%",
+		log_buf(out, ", aggrios=%llu/%llu, aggsectors=%llu/%llu, "
+			 "aggrmerge=%llu/%llu, aggrticks=%llu/%llu, "
+			 "aggrin_queue=%llu, aggrutil=%3.2f%%",
 			(unsigned long long) agg->ios[0] / agg->slavecount,
 			(unsigned long long) agg->ios[1] / agg->slavecount,
+			(unsigned long long) agg->sectors[0] / agg->slavecount,
+			(unsigned long long) agg->sectors[1] / agg->slavecount,
 			(unsigned long long) agg->merges[0] / agg->slavecount,
 			(unsigned long long) agg->merges[1] / agg->slavecount,
 			(unsigned long long) agg->ticks[0] / agg->slavecount,
@@ -1030,11 +1034,14 @@ void print_disk_util(struct disk_util_stat *dus, struct disk_util_agg *agg,
 		if (agg->slavecount)
 			log_buf(out, "  ");
 
-		log_buf(out, "  %s: ios=%llu/%llu, merge=%llu/%llu, "
-			 "ticks=%llu/%llu, in_queue=%llu, util=%3.2f%%",
+		log_buf(out, "  %s: ios=%llu/%llu, sectors=%llu/%llu, "
+			"merge=%llu/%llu, ticks=%llu/%llu, in_queue=%llu, "
+			"util=%3.2f%%",
 				dus->name,
 				(unsigned long long) dus->s.ios[0],
 				(unsigned long long) dus->s.ios[1],
+				(unsigned long long) dus->s.sectors[0],
+				(unsigned long long) dus->s.sectors[1],
 				(unsigned long long) dus->s.merges[0],
 				(unsigned long long) dus->s.merges[1],
 				(unsigned long long) dus->s.ticks[0],
@@ -1081,6 +1088,8 @@ void json_array_add_disk_util(struct disk_util_stat *dus,
 	json_object_add_value_string(obj, "name", (const char *)dus->name);
 	json_object_add_value_int(obj, "read_ios", dus->s.ios[0]);
 	json_object_add_value_int(obj, "write_ios", dus->s.ios[1]);
+	json_object_add_value_int(obj, "read_sectors", dus->s.sectors[0]);
+	json_object_add_value_int(obj, "write_sectors", dus->s.sectors[1]);
 	json_object_add_value_int(obj, "read_merges", dus->s.merges[0]);
 	json_object_add_value_int(obj, "write_merges", dus->s.merges[1]);
 	json_object_add_value_int(obj, "read_ticks", dus->s.ticks[0]);
@@ -1098,6 +1107,10 @@ void json_array_add_disk_util(struct disk_util_stat *dus,
 				agg->ios[0] / agg->slavecount);
 	json_object_add_value_int(obj, "aggr_write_ios",
 				agg->ios[1] / agg->slavecount);
+	json_object_add_value_int(obj, "aggr_read_sectors",
+				agg->sectors[0] / agg->slavecount);
+	json_object_add_value_int(obj, "aggr_write_sectors",
+				agg->sectors[1] / agg->slavecount);
 	json_object_add_value_int(obj, "aggr_read_merges",
 				agg->merges[0] / agg->slavecount);
 	json_object_add_value_int(obj, "aggr_write_merge",
@@ -1522,6 +1535,8 @@ static void add_ddir_status_json(struct thread_stat *ts,
 				ioprio_class(ts->clat_prio[ddir][i].ioprio));
 			json_object_add_value_int(obj, "prio",
 				ioprio(ts->clat_prio[ddir][i].ioprio));
+			json_object_add_value_int(obj, "priohint",
+				ioprio_hint(ts->clat_prio[ddir][i].ioprio));
 
 			tmp_object = add_ddir_lat_json(ts,
 					ts->clat_percentiles | ts->lat_percentiles,
@@ -1697,6 +1712,7 @@ static struct json_object *show_thread_status_json(struct thread_stat *ts,
 	root = json_create_object();
 	json_object_add_value_string(root, "jobname", ts->name);
 	json_object_add_value_int(root, "groupid", ts->groupid);
+	json_object_add_value_int(root, "job_start", ts->job_start);
 	json_object_add_value_int(root, "error", ts->error);
 
 	/* ETA Info */
@@ -2511,6 +2527,7 @@ void __show_run_stats(void)
 			 */
 			ts->thread_number = td->thread_number;
 			ts->groupid = td->groupid;
+			ts->job_start = td->job_start;
 
 			/*
 			 * first pid in group, not very useful...
@@ -3033,7 +3050,9 @@ static void __add_log_sample(struct io_log *iolog, union io_sample_data data,
 		s = get_sample(iolog, cur_log, cur_log->nr_samples);
 
 		s->data = data;
-		s->time = t + (iolog->td ? iolog->td->alternate_epoch : 0);
+		s->time = t;
+		if (iolog->td && iolog->td->o.log_alternate_epoch)
+			s->time += iolog->td->alternate_epoch;
 		io_sample_set_ddir(iolog, s, ddir);
 		s->bs = bs;
 		s->priority = priority;
@@ -3130,7 +3149,7 @@ void reset_io_stats(struct thread_data *td)
 }
 
 static void __add_stat_to_log(struct io_log *iolog, enum fio_ddir ddir,
-			      unsigned long elapsed, bool log_max)
+			      unsigned long elapsed, int log_max)
 {
 	/*
 	 * Note an entry in the log. Use the mean from the logged samples,
@@ -3140,10 +3159,16 @@ static void __add_stat_to_log(struct io_log *iolog, enum fio_ddir ddir,
 	if (iolog->avg_window[ddir].samples) {
 		union io_sample_data data;
 
-		if (log_max)
-			data.val = iolog->avg_window[ddir].max_val;
-		else
-			data.val = iolog->avg_window[ddir].mean.u.f + 0.50;
+		if (log_max == IO_LOG_SAMPLE_AVG) {
+			data.val.val0 = iolog->avg_window[ddir].mean.u.f + 0.50;
+			data.val.val1 = 0;
+		} else if (log_max == IO_LOG_SAMPLE_MAX) {
+			data.val.val0 = iolog->avg_window[ddir].max_val;
+			data.val.val1 = 0;
+		} else {
+			data.val.val0 = iolog->avg_window[ddir].mean.u.f + 0.50;
+			data.val.val1 = iolog->avg_window[ddir].max_val;
+		}
 
 		__add_log_sample(iolog, data, ddir, 0, elapsed, 0, 0);
 	}
@@ -3152,7 +3177,7 @@ static void __add_stat_to_log(struct io_log *iolog, enum fio_ddir ddir,
 }
 
 static void _add_stat_to_log(struct io_log *iolog, unsigned long elapsed,
-			     bool log_max)
+			     int log_max)
 {
 	enum fio_ddir ddir;
 
@@ -3186,7 +3211,7 @@ static unsigned long add_log_sample(struct thread_data *td,
 	 * Add the sample. If the time period has passed, then
 	 * add that entry to the log and clear.
 	 */
-	add_stat_sample(&iolog->avg_window[ddir], data.val);
+	add_stat_sample(&iolog->avg_window[ddir], data.val.val0);
 
 	/*
 	 * If period hasn't passed, adding the above sample is all we
@@ -3202,7 +3227,7 @@ static unsigned long add_log_sample(struct thread_data *td,
 			return diff;
 	}
 
-	__add_stat_to_log(iolog, ddir, elapsed, td->o.log_max != 0);
+	__add_stat_to_log(iolog, ddir, elapsed, td->o.log_max);
 
 	iolog->avg_last[ddir] = elapsed - (elapsed % iolog->avg_msec);
 
@@ -3216,15 +3241,15 @@ void finalize_logs(struct thread_data *td, bool unit_logs)
 	elapsed = mtime_since_now(&td->epoch);
 
 	if (td->clat_log && unit_logs)
-		_add_stat_to_log(td->clat_log, elapsed, td->o.log_max != 0);
+		_add_stat_to_log(td->clat_log, elapsed, td->o.log_max);
 	if (td->slat_log && unit_logs)
-		_add_stat_to_log(td->slat_log, elapsed, td->o.log_max != 0);
+		_add_stat_to_log(td->slat_log, elapsed, td->o.log_max);
 	if (td->lat_log && unit_logs)
-		_add_stat_to_log(td->lat_log, elapsed, td->o.log_max != 0);
+		_add_stat_to_log(td->lat_log, elapsed, td->o.log_max);
 	if (td->bw_log && (unit_logs == per_unit_log(td->bw_log)))
-		_add_stat_to_log(td->bw_log, elapsed, td->o.log_max != 0);
+		_add_stat_to_log(td->bw_log, elapsed, td->o.log_max);
 	if (td->iops_log && (unit_logs == per_unit_log(td->iops_log)))
-		_add_stat_to_log(td->iops_log, elapsed, td->o.log_max != 0);
+		_add_stat_to_log(td->iops_log, elapsed, td->o.log_max);
 }
 
 void add_agg_sample(union io_sample_data data, enum fio_ddir ddir,
@@ -3551,6 +3576,22 @@ static int add_iops_samples(struct thread_data *td, struct timespec *t)
 				td->ts.iops_stat, td->iops_log, false);
 }
 
+static bool td_in_logging_state(struct thread_data *td)
+{
+	if (in_ramp_time(td))
+		return false;
+
+	switch(td->runstate) {
+	case TD_RUNNING:
+	case TD_VERIFYING:
+	case TD_FINISHING:
+	case TD_EXITED:
+		return true;
+	default:
+		return false;
+	}
+}
+
 /*
  * Returns msecs to next event
  */
@@ -3560,15 +3601,13 @@ int calc_log_samples(void)
 	struct timespec now;
 	long elapsed_time = 0;
 
-	fio_gettime(&now, NULL);
-
 	for_each_td(td) {
-		elapsed_time = mtime_since_now(&td->epoch);
+		fio_gettime(&now, NULL);
+		elapsed_time = mtime_since(&td->epoch, &now);
 
 		if (!td->o.stats)
 			continue;
-		if (in_ramp_time(td) ||
-		    !(td->runstate == TD_RUNNING || td->runstate == TD_VERIFYING)) {
+		if (!td_in_logging_state(td)) {
 			next = min(td->o.iops_avg_time, td->o.bw_avg_time);
 			continue;
 		}
